@@ -8,13 +8,15 @@
 #include <unistd.h>
 #include <mutex>
 #include <cerrno>
+#include <thread>
+#include <vector>
 
 #define PORT "6379"
 
 using namespace std;
 mutex m;
 
-void runping(int count) {
+void runping(int count , int client_id ) {
     int sockfd, bytes_received;
     struct addrinfo hints, *res, *p;
 
@@ -58,17 +60,22 @@ void runping(int count) {
         // Send the PING command
         int bytes_sent = send(sockfd, ptr, strlen(ptr), 0);
         if (bytes_sent == -1) {
-            cerr << "Error sending PING command: " << strerror(errno) << endl;
+            cerr << "Client " << client_id << " - Error sending PING command: " << strerror(errno) << endl;
             break;
         }
 
-        cout << "Sent: PING" << endl;
+{
+  lock_guard<mutex> lock(m) ;
+   cout << "Client " << client_id << " - Sent: PING" << endl;
+}
+
 
         // Receive the response
         bytes_received = recv(sockfd, buff, sizeof(buff) - 1, 0);
         if (bytes_received > 0) {
             buff[bytes_received] = '\0';  // Null-terminate the received data
-            cout << "Received: " << buff << endl;
+            lock_guard<mutex> lock(m);
+            cout << "Client " << client_id << " - Received: " << buff << endl;
         } else if (bytes_received == 0) {
             cerr << "Server closed the connection." << endl;
             break;
@@ -82,7 +89,7 @@ void runping(int count) {
 }
 
 int main() {
-    int choice, count;
+    int choice, count , num_clients;
     cout << "Choose test mode:\n";
     cout << "1. Sequential PING\n";
     cout << "2. Concurrent PING (Not Implemented)\n";
@@ -92,10 +99,24 @@ int main() {
     if (choice == 1) {
         cout << "Enter the number of PING commands: ";
         cin >> count;
-        runping(count);
-    } else if (choice == 2) {
-        cerr << "Concurrent PING mode is not implemented yet." << endl;
-    } else {
+        runping(count , 1 );
+    }
+    else if (choice == 2) {
+        cout << "Enter the number of clients: ";
+        cin >> num_clients;
+        cout << "Enter the number of PING commands per client: ";
+        cin >> count;
+
+        vector<thread> threads ;
+        for( int i = 1 ; i<= num_clients ; i++){
+          threads.emplace_back( runping , count , i ) ;
+        }
+
+        for( auto& t : threads ){
+          t.join() ;
+        }
+    }
+    else {
         cerr << "INVALID CHOICE" << endl;
     }
 
