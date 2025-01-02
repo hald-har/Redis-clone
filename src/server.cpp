@@ -11,12 +11,21 @@
 #include <cerrno>
 #include <fcntl.h>
 #include <sys/epoll.h>
+#include <stdexcept>
+#include <sstream>
+#include <mutex>
+#include <algorithm>
+#include "parsedElement.h"
+#include "RESPparser.h"
+#include "commands/echo.h"
 
 #define PORT "6379"
 #define BACKLOG 10
 #define MAX_EVENTS 10
 
 using namespace std;
+
+std::mutex m ;
 
 // Set the socket to non-blocking mode
 int set_socket_nonblocking(int sockfd) {
@@ -40,10 +49,20 @@ void *get_in_addr(struct sockaddr *sa) {
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
+int send_error(int client_fd, const std::string& error_message) {
+    std::string resp_error = "-" + error_message + "\r\n";
+    int bytes_sent = send(client_fd, resp_error.c_str(), resp_error.length(), 0);
+    if (bytes_sent == -1) {
+        perror("Failed to send error message to client");
+        return -1;
+    }
+    return 0;
+}
+
 // Handle client requests
 int one_request(int newfd) {
-    char buf[1000];
-    memset(buf, 0, sizeof(buf));
+    char buf[200];
+    memset(buf, '\0', sizeof(buf));
 
     while (true) {
         int bytes_received = recv(newfd, buf, sizeof(buf) - 1, 0);
@@ -55,25 +74,68 @@ int one_request(int newfd) {
             perror("recv failed");
             return -1;
         }
+
         if (bytes_received == 0) {
             // Client disconnected
-            cout << "Client disconnected." << endl;
+            cout << "client disconnected" << endl;
             return 0;
         }
 
-        buf[bytes_received] = '\0';
-        cout << "Received: " << buf << endl;
+        Parser parser ;
+        ParsedElement element;
+        std::string command ;
+        std::vector<std::string> args ;
 
-        const char* response = "+PONG\r\n";
-        if (send(newfd, response, strlen(response), 0) == -1) {
-            perror("send");
-            return -1;
+
+        try {
+             parser.parse(buf, element);  // Attempt to parse the input buffer
+
+             if( element.getType() == ParsedElement::Type::ARRAY ){
+               std::pair<std::string, std::vector<std::string>> result = parser.extractCommandAndArguments(element);
+               command = result.first;
+               args = result.second;
+             }
+
+         } catch (const std::invalid_argument& e) {
+             // Send error message to client and log it
+             cerr << "Parsing error: here " << e.what() << endl;
+             send_error(newfd, e.what());
+             continue; // Skip this request and wait for the next one
+         } catch (const std::exception& e) {
+             // Handle other unexpected exceptions
+             cerr << "Unexpected error: " << e.what() << endl;
+             send_error(newfd, "Internal server error");
+             return -1;
+         }
+
+        // Handle parsed elements based on their types
+        std::lock_guard<std::mutex> lock(m);  // Ensure thread safety
+
+        if (command == "echo") {
+          try {
+          EchoHandler echo(args);
+          std::string response = echo.getResponse();
+          send(newfd, response.c_str(), response.length(), 0);
+          }
+          catch (const std::exception& e) {
+          cerr << "EchoHandler error: " << e.what() << endl;
+          send_error(newfd, "Error processing echo command");
+          }
         }
-        cout << "Sent: " << response << endl;
+        else if (command == "ping") {
+          const char* buf = "+PONG\r\n";
+          send(newfd, buf, strlen(buf), 0);
+        }
+        else {
+          cerr << "Unknown command received." << endl;
+          send_error(newfd, "Unknown command");
+        }
     }
 
-    return 1;  // Continue processing
+    return 0;
 }
+
+
 
 void cleanup(int sockfd, int epollfd) {
     close(sockfd);
@@ -110,6 +172,7 @@ int main() {
         }
 
         if (bind(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
+            perror("Bind failed");
             close(sockfd);
             continue;
         }
@@ -119,7 +182,7 @@ int main() {
     freeaddrinfo(res);
 
     if (p == NULL) {
-        cerr << "Server FAILED to bind" << endl;
+        cerr << "Bind failed with error: " << strerror(errno) << endl;
         exit(1);
     }
 

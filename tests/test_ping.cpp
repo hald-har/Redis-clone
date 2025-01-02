@@ -37,7 +37,8 @@ int main() {
     }
 
     // Send PING command
-    const char* ping_command = "PING\r\n";
+    const char* ping_command = "+PING\r\n";
+
     if (send(sockfd, ping_command, strlen(ping_command), 0) == -1) {
         cerr << "Error sending PING command." << endl;
         return 1;

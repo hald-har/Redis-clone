@@ -54,7 +54,7 @@ void runping(int count , int client_id ) {
         return;
     }
 
-    const char* ptr = "PING\r\n";
+    const char* ptr = "+PING\r\n";
     for (int i = 1; i <= count; i++) {
         char buff[100];
         // Send the PING command
