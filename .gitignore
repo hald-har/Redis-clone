@@ -1,0 +1,40 @@
+# Node.js dependencies
+node_modules/
+*.log
+npm-debug.log*
+
+# Build artifacts
+dist/
+build/
+*.o
+*.out
+*.exe
+*.a
+*.so
+*.dll
+
+# Redis-specific artifacts
+dump.rdb
+appendonly.aof
+
+# Coverage reports
+coverage/
+
+# Environment variables
+.env
+
+# IDE/editor specific
+.vscode/
+.idea/
+*.iml
+
+# Debugging files
+*.core
+*.dmp
+
+# Temporary files
+tmp/
+temp/
+*.swp
+*.tmp
+*.bak
